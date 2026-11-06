@@ -39,6 +39,9 @@ class FinanceService
                 $m = CarbonImmutable::parse($d['start'].'-01');
                 for ($n = 0; $n < ($r->kind === 'savings' ? 1200 : 600) && $m->format('Y-m') <= $through; $n++,$m = $m->addMonth()) {
                     $cycle = $m->format('Y-m');
+                    if ($r->kind === 'savings' && isset($d['installment_count']) && $n >= $d['installment_count']) {
+                        break;
+                    }
                     if (! empty($d['end']) && $cycle > $d['end']) {
                         break;
                     }if ($r->kind === 'loans' && $n >= $d['term']) {
@@ -48,7 +51,10 @@ class FinanceService
                     }
                     $paid = $tx->where('source_id', $r->id)->where('cycle', $cycle)->sum('amount_paisa');
                     $due = $m->setDay(min($d['day'], $m->daysInMonth))->format('Y-m-d');
-                    if ($r->kind === 'savings' && ($due > $d['maturity'] || (($d['maturity_mode'] ?? null) === 'duration' && $due === $d['maturity']))) {
+                    if ($r->kind === 'savings' && $n === 0 && ! empty($d['first_payment'])) {
+                        $due = $d['first_payment'];
+                    }
+                    if ($r->kind === 'savings' && ($due > $d['maturity'] || (($d['maturity_mode'] ?? null) === 'duration' && ! isset($d['installment_count']) && $due === $d['maturity']))) {
                         break;
                     }
                     $planner[] = ['record_id' => $r->id, 'kind' => $r->kind, 'type' => $type, 'name' => $r->name, 'cycle' => $cycle, 'date' => $due, 'amount_paisa' => $amount, 'paid_paisa' => $paid, 'left_paisa' => max(0, $amount - $paid)];

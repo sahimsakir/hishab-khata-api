@@ -96,6 +96,10 @@ class TransactionService
                 }
                 if ($source->kind === 'savings') {
                     $this->check($cycle <= substr($source->data['maturity'], 0, 7), 'This month follows the maturity date.');
+                    if (isset($source->data['installment_count'])) {
+                        $months = ((int) substr($cycle, 0, 4) - (int) substr($source->data['start'], 0, 4)) * 12 + (int) substr($cycle, 5, 2) - (int) substr($source->data['start'], 5, 2);
+                        $this->check($months < $source->data['installment_count'], 'This month is beyond the installment schedule.');
+                    }
                 }
                 $expectedAmount = $source->data[match ($source->kind) {
                     'loans' => 'emi_paisa','savings' => 'monthly_paisa',default => 'amount_paisa'
