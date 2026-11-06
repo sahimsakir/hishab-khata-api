@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\FinanceRepository;
 use App\Contracts\UserRepository;
 use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -34,10 +35,19 @@ class RecordService
                 'bills' => $schedule + ['amount' => $money, 'category' => 'required|string|max:60', 'account_id' => 'required|uuid'],
                 'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $money, 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
                 'cards' => ['bank' => 'required|string|max:120', 'limit' => $money, 'opening' => $money, 'statement' => $money, 'minimum' => $money, 'statement_date' => 'required|date_format:Y-m-d', 'due_date' => 'required|date_format:Y-m-d|after_or_equal:statement_date'],
-                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => 'required|date_format:Y-m-d', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d'],
+                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => (($input['data']['maturity_mode'] ?? 'exact') === 'duration' ? 'nullable|date_format:Y-m-d' : 'required|date_format:Y-m-d'), 'maturity_mode' => 'nullable|in:duration,exact', 'term_value' => 'required_if:maturity_mode,duration|nullable|integer|min:1|max:1200', 'term_unit' => 'required_if:maturity_mode,duration|nullable|in:months,years', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d'],
                 'budgets' => ['category' => 'required|string|max:60', 'limit' => $money],
             };
             $data = Validator::make($input['data'], $rules)->validate();
+            if ($input['kind'] === 'savings' && ($data['maturity_mode'] ?? null) === 'duration') {
+                $months = (int) $data['term_value'] * ($data['term_unit'] === 'years' ? 12 : 1);
+                $this->check($months <= 1200, 'Maturity duration cannot exceed 100 years or 1200 months.');
+                $firstMonth = CarbonImmutable::createFromFormat('!Y-m-d', $data['start'].'-01');
+                $firstDue = $firstMonth->setDay(min((int) $data['day'], $firstMonth->daysInMonth));
+                $data['maturity'] = $firstDue->addMonthsNoOverflow($months)->format('Y-m-d');
+                $data['term_value'] = (int) $data['term_value'];
+            }
+
             foreach ($data as $key => $value) {
                 if (in_array($key, ['opening', 'amount', 'emi', 'limit', 'statement', 'minimum', 'target', 'monthly'])) {
                     unset($data[$key]);

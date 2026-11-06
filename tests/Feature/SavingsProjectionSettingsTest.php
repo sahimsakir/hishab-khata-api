@@ -31,6 +31,33 @@ class SavingsProjectionSettingsTest extends TestCase
         $this->assertDatabaseCount('transactions', 0);
     }
 
+    public function test_duration_calculates_maturity_on_the_server_and_stops_after_36_deposits(): void
+    {
+        $plan = $this->savePlan(['maturity_mode' => 'duration', 'term_value' => '3', 'term_unit' => 'years', 'maturity' => '2099-01-01', 'projection_start' => '2026-07-08']);
+        $this->assertSame('2029-07-08', $plan->data['maturity']);
+        $snapshot = app(\App\Services\FinanceService::class)->snapshot($plan->user_id, '2029-07-08', 'Monthly');
+        $this->assertCount(36, $snapshot['planner']);
+        $this->assertSame('2029-06-08', end($snapshot['planner'])['date']);
+    }
+
+    public function test_month_end_is_clamped_and_duration_can_supply_the_maturity_date(): void
+    {
+        $plan = $this->savePlan(['start' => '2026-01', 'day' => 31, 'maturity_mode' => 'duration', 'term_value' => 1, 'term_unit' => 'months', 'maturity' => null, 'projection_start' => '2026-01-31']);
+        $this->assertSame('2026-02-28', $plan->data['maturity']);
+    }
+
+    public function test_exact_date_is_not_replaced_by_a_saved_duration(): void
+    {
+        $plan = $this->savePlan(['maturity_mode' => 'exact', 'term_value' => 3, 'term_unit' => 'years', 'maturity' => '2029-08-15']);
+        $this->assertSame('2029-08-15', $plan->data['maturity']);
+    }
+
+    public function test_excessive_duration_is_rejected(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->savePlan(['maturity_mode' => 'duration', 'term_value' => 101, 'term_unit' => 'years']);
+    }
+
     public function test_negative_fixed_deposit_rate_is_rejected(): void
     {
         $this->expectException(ValidationException::class);
