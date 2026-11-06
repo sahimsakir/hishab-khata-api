@@ -10,6 +10,9 @@ use Illuminate\Http\Request;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(web: __DIR__.'/../routes/web.php', commands: __DIR__.'/../routes/console.php', health: '/up')
     ->withMiddleware(function (Middleware $m): void {
+        if ($proxies = env('TRUSTED_PROXIES')) {
+            $m->trustProxies(at: $proxies);
+        }
         $m->alias(['passport.cookie' => PassportCookie::class]);
         $m->prependToPriorityList(AuthenticatesRequests::class, PassportCookie::class);
         $m->redirectGuestsTo(fn (Request $r) => null);

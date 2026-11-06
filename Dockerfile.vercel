@@ -1,0 +1,22 @@
+# Vercel's Container runtime selects this file; local Compose keeps Dockerfile.
+FROM php:8.4-apache-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git unzip libpq-dev libzip-dev libonig-dev libsqlite3-dev \
+    && docker-php-ext-install pdo_pgsql pdo_sqlite mbstring zip \
+    && a2enmod rewrite \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+WORKDIR /var/www/html
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader
+COPY . .
+RUN composer dump-autoload --no-dev --classmap-authoritative --no-scripts \
+    && sed -ri 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf \
+    && printf '<Directory /var/www/html/public>\n  AllowOverride All\n  Require all granted\n</Directory>\n' > /etc/apache2/conf-available/hishabkhata.conf \
+    && a2enconf hishabkhata \
+    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod +x docker/vercel-start.sh
+ENV APP_ENV=production APP_DEBUG=false LOG_CHANNEL=stderr SESSION_DRIVER=database CACHE_STORE=database
+EXPOSE 80
+CMD ["docker/vercel-start.sh"]
