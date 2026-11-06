@@ -67,6 +67,9 @@ class AuthController extends Controller
 
     public function googleLink(Request $r)
     {
+        if ($r->user('api')->google_connected) {
+            return redirect(config('money.frontend_url').'/profile?google=connected');
+        }
         $r->session()->put('google_link_user', $r->user('api')->id);
 
         return Socialite::driver('google')->scopes(['openid', 'profile', 'email'])->redirect();
@@ -74,6 +77,7 @@ class AuthController extends Controller
 
     public function googleCallback(Request $r)
     {
+        $link = $r->session()->get('google_link_user');
         try {
             // Stateful Socialite validates the single-use OAuth state in this session.
             $google = Socialite::driver('google')->user();
@@ -81,12 +85,12 @@ class AuthController extends Controller
             $user = $this->auth->google($google, $link ? (int) $link : null);
             $r->session()->regenerate();
 
-            return redirect(config('money.frontend_url').'/auth/callback')->withCookie($this->tokenCookie($this->auth->issue($user)));
+            return redirect(config('money.frontend_url').'/auth/callback'.($link ? '?linked=1' : ''))->withCookie($this->tokenCookie($this->auth->issue($user)));
         } catch (Throwable $e) {
             $r->session()->forget('google_link_user');
 
             // Detailed provider errors/tokens are never reflected into URLs or logs.
-            return redirect(config('money.frontend_url').'/login?google_error=1');
+            return redirect(config('money.frontend_url').($link ? '/profile?google_error=1' : '/login?google_error=1'));
         }
     }
 }
