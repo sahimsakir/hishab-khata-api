@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\FinanceRepository;
 use App\Contracts\UserRepository;
 use App\Support\Money;
+use App\Support\InstallmentPayments;
 use App\Support\InstallmentSchedule;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -111,7 +112,7 @@ class RecordService
                 $this->check($history <= count($eligible), 'Previously paid installments cannot exceed the '.count($eligible).' installments due by '.$today.'.');
                 if ($history > 0 && $record) {
                     $cycles = array_column(array_slice($eligible, 0, $history), 'cycle');
-                    $overlap = $this->repo->transactions($uid)->where('source_id', $record->id)->whereIn('cycle', $cycles)->isNotEmpty();
+                    $overlap = collect($cycles)->contains(fn ($cycle) => InstallmentPayments::paid($record, $this->repo->transactions($uid), $cycle) > 0);
                     $this->check(! $overlap, 'These installments already have recorded payments. Exclude recorded installments from opening payment history.');
                 }
                 if ($eligibleType) {

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\FinanceRepository;
 use App\Support\InstallmentSchedule;
+use App\Support\InstallmentPayments;
 use Carbon\CarbonImmutable;
 
 class FinanceService
@@ -47,7 +48,7 @@ class FinanceService
                     $cycle = $scheduled['cycle'];
                     $due = $scheduled['date'];
                     $historical = $n < (int) ($d['previously_paid_installments'] ?? 0);
-                    $paid = $tx->where('source_id', $r->id)->where('cycle', $cycle)->sum('amount_paisa');
+                    $paid = InstallmentPayments::paid($r, $tx, $cycle);
                     $paid = max($paid, $historical ? $amount : 0);
                     $planner[] = ['record_id' => $r->id, 'kind' => $r->kind, 'type' => $type, 'name' => $r->name, 'cycle' => $cycle, 'date' => $due, 'amount_paisa' => $amount, 'paid_paisa' => $paid, 'left_paisa' => max(0, $amount - $paid), 'previously_paid' => $historical];
                 }

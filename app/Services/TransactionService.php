@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\FinanceRepository;
 use App\Contracts\UserRepository;
 use App\Support\Money;
+use App\Support\InstallmentPayments;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -108,7 +109,7 @@ class TransactionService
                 $expectedAmount = $source->data[match ($source->kind) {
                     'loans' => 'emi_paisa','savings' => 'monthly_paisa',default => 'amount_paisa'
                 }];
-                $paid = $tx->where('source_id', $source->id)->where('cycle', $cycle)->sum('amount_paisa');
+                $paid = InstallmentPayments::paid($source, $tx, $cycle);
                 $this->check($amount <= $expectedAmount - $paid, 'Payment exceeds the scheduled remainder. Record extra payments separately.');
                 $data['source_id'] = $source->id;
                 $data['cycle'] = $cycle;
