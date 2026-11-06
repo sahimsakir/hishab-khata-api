@@ -17,9 +17,9 @@ class FinanceController extends Controller
 
     public function index(Request $r): JsonResponse
     {
-        $v = $r->validate(['date' => 'required|date_format:Y-m-d', 'period' => 'required|in:Daily,Monthly,Yearly']);
+        $v = $r->validate(['date' => 'required|date_format:Y-m-d', 'period' => 'required|in:Daily,Monthly,Yearly,Custom', 'from' => 'required_if:period,Custom|date_format:Y-m-d', 'to' => 'required_if:period,Custom|date_format:Y-m-d|after_or_equal:from']);
 
-        return response()->json($this->finance->snapshot($r->user('api')->id, $v['date'], $v['period']));
+        return response()->json($this->finance->snapshot($r->user('api')->id, $v['date'], $v['period'], $v['from'] ?? null, $v['to'] ?? null));
     }
 
     public function storeRecord(RecordRequest $r): JsonResponse

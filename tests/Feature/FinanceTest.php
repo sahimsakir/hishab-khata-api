@@ -42,6 +42,21 @@ class FinanceTest extends TestCase
         return app(TransactionService::class)->save($this->user->id, array_merge(['type' => 'expense', 'name' => 'Test', 'amount' => '0.10', 'date' => '2026-11-06', 'idempotency_key' => (string) Str::uuid()], $data));
     }
 
+    public function test_custom_range_includes_boundaries_and_excludes_outside_transactions(): void
+    {
+        $account = $this->account();
+        foreach (['2026-10-31', '2026-11-01', '2026-11-30', '2026-12-01'] as $date) {
+            $this->tx(['account_id' => $account->id, 'date' => $date, 'amount' => '0.10']);
+        }
+        Passport::actingAs($this->user);
+        $this->getJson('/api/finance?date=2026-11-07&period=Custom&from=2026-11-01&to=2026-11-30')
+            ->assertOk()->assertJsonPath('from', '2026-11-01')->assertJsonPath('to', '2026-11-30')
+            ->assertJsonPath('summary.spending_paisa', 20)->assertJsonPath('summary.cash_paisa', 999970);
+        $this->getJson('/api/finance?date=2026-11-07&period=Custom&from=2026-11-30&to=2026-11-01')
+            ->assertUnprocessable()->assertJsonValidationErrors('to');
+        $this->getJson('/api/finance?date=2026-11-07&period=Custom')->assertUnprocessable()->assertJsonValidationErrors(['from', 'to']);
+    }
+
     public function test_exact_paisa_and_no_rounding(): void
     {
         $this->assertSame(10, Money::parse('0.10'));

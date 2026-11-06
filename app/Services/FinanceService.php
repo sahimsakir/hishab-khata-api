@@ -10,7 +10,7 @@ class FinanceService
 {
     public function __construct(private FinanceRepository $repo, private BalanceService $balances) {}
 
-    public function snapshot(int $uid, string $date, string $period): array
+    public function snapshot(int $uid, string $date, string $period, ?string $rangeFrom = null, ?string $rangeTo = null): array
     {
         $records = $this->repo->records($uid);
         $tx = $this->repo->transactions($uid);
@@ -21,8 +21,13 @@ class FinanceService
         $to = match ($period) {
             'Daily' => $at,'Yearly' => $at->endOfYear(),default => $at->endOfMonth()
         };
+        if ($period === 'Custom') {
+            $from = CarbonImmutable::parse($rangeFrom);
+            $to = CarbonImmutable::parse($rangeTo);
+        }
         $planner = [];
-        $through = $at->format('Y-m');
+        $plannerEnd = $period === 'Custom' ? $to : $at->endOfMonth();
+        $through = $plannerEnd->format('Y-m');
         foreach ($records as $r) {
             $d = $r->data;
             $type = match ($r->kind) {
@@ -37,7 +42,7 @@ class FinanceService
                 }if ($r->kind === 'loans' && $this->balances->loan($r, $tx) <= 0) {
                     continue;
                 }
-                $dates = InstallmentSchedule::dates($r->kind, $d, $at->endOfMonth()->format('Y-m-d'));
+                $dates = InstallmentSchedule::dates($r->kind, $d, $plannerEnd->format('Y-m-d'));
                 foreach ($dates as $n => $scheduled) {
                     $cycle = $scheduled['cycle'];
                     $due = $scheduled['date'];
@@ -51,6 +56,9 @@ class FinanceService
                 $paid = $tx->where('type', 'card_payment')->where('card_id', $r->id)->where('statement_date', $d['statement_date'])->sum('amount_paisa');
                 $planner[] = ['record_id' => $r->id, 'kind' => 'cards', 'type' => 'card_payment', 'name' => $r->name, 'cycle' => $d['statement_date'], 'date' => $d['due_date'], 'amount_paisa' => $d['statement_paisa'], 'paid_paisa' => $paid, 'left_paisa' => max(0, $d['statement_paisa'] - $paid)];
             }
+        }
+        if ($period === 'Custom') {
+            $planner = array_values(array_filter($planner, fn ($row) => $row['date'] <= $to->format('Y-m-d') && ($row['date'] >= $from->format('Y-m-d') || $row['left_paisa'] > 0)));
         }
         usort($planner, fn ($a, $b) => strcmp($a['date'], $b['date']));
         $recordBalances = [];
