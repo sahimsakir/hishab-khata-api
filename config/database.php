@@ -97,6 +97,10 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Keep parameter binding, without named statements across pooled sessions.
+            'options' => extension_loaded('pdo_pgsql') ? [
+                PDO::PGSQL_ATTR_DISABLE_PREPARES => true,
+            ] : [],
         ],
 
         'sqlsrv' => [
