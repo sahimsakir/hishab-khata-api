@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\FinanceRepository;
 use App\Contracts\UserRepository;
 use App\Support\Money;
+use App\Support\InstallmentSchedule;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -34,9 +35,9 @@ class RecordService
                 'accounts' => ['type' => 'required|in:Cash,Bank,Mobile wallet,Business account,Other', 'opening' => $money, 'institution' => 'nullable|string|max:120'],
                 'incomes' => $schedule + ['type' => 'required|in:Salary,Business profit,Freelance,Rental income,Dividend / interest,Other', 'amount' => $money, 'account_id' => 'required|uuid', 'frequency' => 'nullable|in:monthly,once', 'payment_date' => 'nullable|date_format:Y-m-d', 'payer' => 'nullable|string|max:120'],
                 'bills' => $schedule + ['amount' => $money, 'category' => 'required|string|max:60', 'account_id' => 'required|uuid', 'frequency' => 'nullable|in:monthly,once', 'payment_date' => 'nullable|date_format:Y-m-d'],
-                'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $money, 'interest_bearing' => 'nullable|in:yes,no', 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
+                'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $money, 'previously_paid_installments' => 'nullable|integer|min:0|max:1200', 'interest_bearing' => 'nullable|in:yes,no', 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
                 'cards' => ['bank' => 'required|string|max:120', 'limit' => $money, 'opening' => $money, 'statement' => $money, 'minimum' => $money, 'statement_date' => 'required|date_format:Y-m-d', 'due_date' => 'required|date_format:Y-m-d|after_or_equal:statement_date'],
-                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => (($input['data']['maturity_mode'] ?? 'exact') === 'duration' ? 'nullable|date_format:Y-m-d' : 'required|date_format:Y-m-d'), 'maturity_mode' => 'nullable|in:duration,exact', 'term_value' => 'required_if:maturity_mode,duration|nullable|integer|min:1|max:1200', 'term_unit' => 'required_if:maturity_mode,duration|nullable|in:months,years', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d', 'opening_date' => 'nullable|date_format:Y-m-d', 'first_payment' => 'nullable|date_format:Y-m-d', 'calculation_basis' => 'nullable|in:monthly_installments,actual_days', 'payment_timing' => 'nullable|in:beginning,end'],
+                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => (($input['data']['maturity_mode'] ?? 'exact') === 'duration' ? 'nullable|date_format:Y-m-d' : 'required|date_format:Y-m-d'), 'maturity_mode' => 'nullable|in:duration,exact', 'term_value' => 'required_if:maturity_mode,duration|nullable|integer|min:1|max:1200', 'term_unit' => 'required_if:maturity_mode,duration|nullable|in:months,years', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d', 'opening_date' => 'nullable|date_format:Y-m-d', 'first_payment' => 'nullable|date_format:Y-m-d', 'calculation_basis' => 'nullable|in:monthly_installments,actual_days', 'payment_timing' => 'nullable|in:beginning,end', 'previously_paid_installments' => 'nullable|integer|min:0|max:1200'],
                 'budgets' => ['category' => 'required|string|max:60', 'limit' => $money],
             };
             $data = Validator::make($input['data'], $rules, [], ['annual_rate' => 'annual rate', 'opening_date' => 'opening date', 'first_payment' => 'first payment date', 'term_value' => 'tenure', 'term_unit' => 'tenure unit', 'end' => 'last month', 'start' => 'first month', 'projection_start' => 'projection date', 'compounding' => 'interest method', 'account_id' => 'account'])->validate();
@@ -99,6 +100,28 @@ class RecordService
                     $this->check((int) substr($data['maturity'], 0, 4) - (int) substr($data['projection_start'], 0, 4) <= 100, 'Projection duration cannot exceed 100 years.');
                     $this->check($data['type'] !== 'FDR' || $data['monthly_paisa'] === 0, 'Use zero monthly contribution for a one-time FDR.');
                     $data['annual_rate'] = (float) $data['annual_rate'];
+                }
+            }
+            if (in_array($input['kind'], ['loans', 'savings'])) {
+                $history = (int) ($data['previously_paid_installments'] ?? 0);
+                $eligibleType = $input['kind'] === 'loans' || in_array($data['type'], ['DPS', 'SIP']);
+                $this->check($history === 0 || $eligibleType, 'Previously paid installments apply only to loans, DPS, and SIP.');
+                $today = CarbonImmutable::now('Asia/Dhaka')->format('Y-m-d');
+                $eligible = InstallmentSchedule::dates($input['kind'], $data, $today);
+                $this->check($history <= count($eligible), 'Previously paid installments cannot exceed the '.count($eligible).' installments due by '.$today.'.');
+                if ($history > 0 && $record) {
+                    $cycles = array_column(array_slice($eligible, 0, $history), 'cycle');
+                    $overlap = $this->repo->transactions($uid)->where('source_id', $record->id)->whereIn('cycle', $cycles)->isNotEmpty();
+                    $this->check(! $overlap, 'These installments already have recorded payments. Exclude recorded installments from opening payment history.');
+                }
+                if ($eligibleType) {
+                    $data['previously_paid_installments'] = $history;
+                    if ($history > 0) {
+                        $data['history_recorded_on'] = $record && (int) ($record->data['previously_paid_installments'] ?? 0) === $history
+                            ? ($record->data['history_recorded_on'] ?? $today) : $today;
+                    }
+                } else {
+                    unset($data['previously_paid_installments']);
                 }
             }
             if ($record) {

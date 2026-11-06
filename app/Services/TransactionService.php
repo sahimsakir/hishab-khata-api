@@ -90,6 +90,10 @@ class TransactionService
                 $cycle = $input['cycle'] ?? null;
                 $this->check((bool) $cycle, 'Select a scheduled month.');
                 $this->check($cycle >= $source->data['start'] && (empty($source->data['end']) || $cycle <= $source->data['end']), 'This month is outside the recurring schedule.');
+                if (in_array($source->kind, ['loans', 'savings'])) {
+                    $index = ((int) substr($cycle, 0, 4) - (int) substr($source->data['start'], 0, 4)) * 12 + (int) substr($cycle, 5, 2) - (int) substr($source->data['start'], 5, 2);
+                    $this->check($index >= (int) ($source->data['previously_paid_installments'] ?? 0), 'This installment was already paid before tracking began. Record additional payments separately.');
+                }
                 if ($source->kind === 'loans') {
                     $months = ((int) substr($cycle, 0, 4) - (int) substr($source->data['start'], 0, 4)) * 12 + (int) substr($cycle, 5, 2) - (int) substr($source->data['start'], 5, 2);
                     $this->check($months < $source->data['term'], 'This month is beyond the loan term.');
