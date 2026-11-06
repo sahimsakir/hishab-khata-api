@@ -34,7 +34,7 @@ class RecordService
                 'bills' => $schedule + ['amount' => $money, 'category' => 'required|string|max:60', 'account_id' => 'required|uuid'],
                 'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $money, 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
                 'cards' => ['bank' => 'required|string|max:120', 'limit' => $money, 'opening' => $money, 'statement' => $money, 'minimum' => $money, 'statement_date' => 'required|date_format:Y-m-d', 'due_date' => 'required|date_format:Y-m-d|after_or_equal:statement_date'],
-                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => 'required|date_format:Y-m-d'],
+                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => 'required|date_format:Y-m-d', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d'],
                 'budgets' => ['category' => 'required|string|max:60', 'limit' => $money],
             };
             $data = Validator::make($input['data'], $rules)->validate();
@@ -67,6 +67,13 @@ class RecordService
             }
             if ($input['kind'] === 'savings') {
                 $this->check(substr($data['maturity'], 0, 7) >= $data['start'], 'Maturity must follow the first scheduled month.');
+                if (isset($data['annual_rate'])) {
+                    $this->check(! empty($data['projection_start']) && ! empty($data['compounding']), 'Choose a projection start date and growth calculation when entering an annual rate.');
+                    $this->check($data['maturity'] >= $data['projection_start'], 'Maturity must be on or after the projection start date.');
+                    $this->check((int) substr($data['maturity'], 0, 4) - (int) substr($data['projection_start'], 0, 4) <= 100, 'Projection duration cannot exceed 100 years.');
+                    $this->check($data['type'] !== 'FDR' || $data['monthly_paisa'] === 0, 'Use zero monthly contribution for a one-time FDR.');
+                    $data['annual_rate'] = (float) $data['annual_rate'];
+                }
             }
             if ($record) {
                 $copy = clone $record;
