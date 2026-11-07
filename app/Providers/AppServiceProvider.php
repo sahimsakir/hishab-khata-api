@@ -24,7 +24,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Passport::personalAccessTokensExpireIn(CarbonInterval::minutes(config('money.token_minutes')));
+        Passport::personalAccessTokensExpireIn(CarbonInterval::years(config('money.token_years')));
         // The browser auth flow issues Passport personal access tokens on the server.
         // Disable unused public OAuth endpoints; the SPA never handles raw tokens.
         Passport::ignoreRoutes();

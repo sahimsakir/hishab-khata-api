@@ -27,6 +27,7 @@ class TransactionService
             $this->users->lock($uid);
             $all = $this->repo->transactions($uid);
             $old = $id ? $this->repo->transaction($uid, $id) : null;
+            $input['name'] ??= '';
             $fingerprint = $input;
             unset($fingerprint['idempotency_key']);
             $fingerprint['amount'] = Money::parse($input['amount']);

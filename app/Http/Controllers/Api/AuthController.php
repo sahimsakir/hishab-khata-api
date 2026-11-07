@@ -24,7 +24,7 @@ class AuthController extends Controller
 
     private function tokenCookie(string $token)
     {
-        return Cookie::make(config('money.auth_cookie'), $token, config('money.token_minutes'), '/', config('session.domain'), (bool) config('session.secure'), true, false, 'lax');
+        return Cookie::make(config('money.auth_cookie'), $token, config('money.cookie_minutes'), '/', config('session.domain'), (bool) config('session.secure'), true, false, 'lax');
     }
 
     public function csrf(Request $r): JsonResponse
@@ -46,7 +46,10 @@ class AuthController extends Controller
 
     public function me(Request $r): JsonResponse
     {
-        return response()->json(['user' => $r->user('api')]);
+        $response = response()->json(['user' => $r->user('api')]);
+        $token = $r->bearerToken();
+
+        return $token ? $response->withCookie($this->tokenCookie($token)) : $response;
     }
 
     public function logout(Request $r): JsonResponse

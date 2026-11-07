@@ -125,6 +125,23 @@ class FinanceTest extends TestCase
         $this->postJson('/api/transactions', ['type' => 'expense', 'name' => 'No', 'amount' => '1.00', 'date' => '2026-11-06', 'account_id' => $a->id, 'idempotency_key' => (string) Str::uuid()])->assertNotFound();
     }
 
+    public function test_transaction_can_be_saved_without_description(): void
+    {
+        $account = $this->account();
+        Passport::actingAs($this->user);
+        $payload = [
+            'type' => 'expense',
+            'amount' => '1.00',
+            'date' => '2026-11-06',
+            'account_id' => $account->id,
+            'idempotency_key' => (string) Str::uuid(),
+        ];
+        $transaction = $this->postJson('/api/transactions', $payload)
+            ->assertCreated()->assertJsonPath('name', '')->json();
+        $this->putJson('/api/transactions/'.$transaction['id'], $payload + ['name' => null])
+            ->assertOk()->assertJsonPath('name', '');
+    }
+
     public function test_idempotent_retry_does_not_duplicate_payment(): void
     {
         $a = $this->account();
