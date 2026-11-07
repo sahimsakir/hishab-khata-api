@@ -164,6 +164,18 @@ class FinanceTest extends TestCase
         $this->getJson('/api/finance?date=2026-11-06&period=Monthly')->assertUnauthorized();
     }
 
+    public function test_loan_calculates_emi_and_keeps_processing_fee_separate(): void
+    {
+        $loan = $this->record('loans', [
+            'type' => 'Personal', 'lender' => 'Bank', 'opening' => '1000000',
+            'rate' => '12', 'term' => 60, 'start' => '2026-11', 'day' => 8,
+            'processing_fee' => '5000',
+        ]);
+        $this->assertSame(2224445, $loan->data['emi_paisa']);
+        $this->assertSame(500000, $loan->data['processing_fee_paisa']);
+        $this->assertSame(100000000, $loan->data['opening_paisa']);
+    }
+
     public function test_loan_principal_cannot_exceed_outstanding(): void
     {
         $a = $this->account();

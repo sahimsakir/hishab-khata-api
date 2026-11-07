@@ -31,14 +31,15 @@ class RecordService
             $this->check(! $record || $record->kind === $input['kind'], 'A record type cannot be changed.');
             $input['data'] = $this->prepareData($input['kind'], $input['data']);
             $money = ['required', 'string', 'regex:/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/'];
+            $optionalMoney = ['nullable', ...array_slice($money, 1)];
             $schedule = ['day' => 'required|integer|min:1|max:31', 'start' => 'required|date_format:Y-m', 'end' => 'nullable|date_format:Y-m|after_or_equal:start'];
             $rules = match ($input['kind']) {
                 'accounts' => ['type' => 'required|in:Cash,Bank,Mobile wallet,Business account,Other', 'opening' => $money, 'institution' => 'nullable|string|max:120'],
                 'incomes' => $schedule + ['type' => 'required|in:Salary,Business profit,Freelance,Rental income,Dividend / interest,Other', 'amount' => $money, 'account_id' => 'required|uuid', 'frequency' => 'nullable|in:monthly,once', 'payment_date' => 'nullable|date_format:Y-m-d', 'payer' => 'nullable|string|max:120'],
                 'bills' => $schedule + ['amount' => $money, 'category' => 'required|string|max:60', 'account_id' => 'required|uuid', 'frequency' => 'nullable|in:monthly,once', 'payment_date' => 'nullable|date_format:Y-m-d'],
-                'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $money, 'previously_paid_installments' => 'nullable|integer|min:0|max:1200', 'interest_bearing' => 'nullable|in:yes,no', 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
+                'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $optionalMoney, 'processing_fee' => $optionalMoney, 'previously_paid_installments' => 'nullable|integer|min:0|max:1200', 'interest_bearing' => 'nullable|in:yes,no', 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
                 'cards' => ['bank' => 'required|string|max:120', 'limit' => $money, 'opening' => $money, 'statement' => $money, 'minimum' => $money, 'statement_date' => 'required|date_format:Y-m-d', 'due_date' => 'required|date_format:Y-m-d|after_or_equal:statement_date'],
-                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'maturity' => (($input['data']['maturity_mode'] ?? 'exact') === 'duration' ? 'nullable|date_format:Y-m-d' : 'required|date_format:Y-m-d'), 'maturity_mode' => 'nullable|in:duration,exact', 'term_value' => 'required_if:maturity_mode,duration|nullable|integer|min:1|max:1200', 'term_unit' => 'required_if:maturity_mode,duration|nullable|in:months,years', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d', 'opening_date' => 'nullable|date_format:Y-m-d', 'first_payment' => 'nullable|date_format:Y-m-d', 'calculation_basis' => 'nullable|in:monthly_installments,actual_days', 'payment_timing' => 'nullable|in:beginning,end', 'previously_paid_installments' => 'nullable|integer|min:0|max:1200'],
+                'savings' => $schedule + ['type' => 'required|in:DPS,FDR,SIP,Goal', 'bank' => 'required|string|max:120', 'target' => $money, 'opening' => $money, 'monthly' => $money, 'bank_accrued_interest' => $optionalMoney, 'maturity' => (($input['data']['maturity_mode'] ?? 'exact') === 'duration' ? 'nullable|date_format:Y-m-d' : 'required|date_format:Y-m-d'), 'maturity_mode' => 'nullable|in:duration,exact', 'term_value' => 'required_if:maturity_mode,duration|nullable|integer|min:1|max:1200', 'term_unit' => 'required_if:maturity_mode,duration|nullable|in:months,years', 'annual_rate' => 'nullable|numeric|min:'.(($input['data']['type'] ?? '') === 'SIP' ? '-99.99' : '0').'|max:100', 'compounding' => 'nullable|in:simple,monthly,quarterly,yearly', 'projection_start' => 'nullable|date_format:Y-m-d', 'opening_date' => 'nullable|date_format:Y-m-d', 'first_payment' => 'nullable|date_format:Y-m-d', 'calculation_basis' => 'nullable|in:monthly_installments,actual_days', 'payment_timing' => 'nullable|in:beginning,end', 'previously_paid_installments' => 'nullable|integer|min:0|max:1200'],
                 'budgets' => ['category' => 'required|string|max:60', 'limit' => $money],
             };
             $data = Validator::make($input['data'], $rules, [], ['annual_rate' => 'annual rate', 'opening_date' => 'opening date', 'first_payment' => 'first payment date', 'term_value' => 'tenure', 'term_unit' => 'tenure unit', 'end' => 'last month', 'start' => 'first month', 'projection_start' => 'projection date', 'compounding' => 'interest method', 'account_id' => 'account'])->validate();
@@ -52,10 +53,24 @@ class RecordService
             }
 
             foreach ($data as $key => $value) {
-                if (in_array($key, ['opening', 'amount', 'emi', 'limit', 'statement', 'minimum', 'target', 'monthly'])) {
+                if (in_array($key, ['opening', 'amount', 'emi', 'limit', 'statement', 'minimum', 'target', 'monthly', 'processing_fee', 'bank_accrued_interest'])) {
                     unset($data[$key]);
-                    $data[$key.'_paisa'] = Money::parse($value);
+                    if ($value !== null && $value !== '') {
+                        $data[$key.'_paisa'] = Money::parse($value);
+                    }
                 }
+            }
+            if ($input['kind'] === 'loans') {
+                $data['emi_auto'] = isset($data['emi_paisa']) ? 'no' : 'yes';
+            }
+            if ($input['kind'] === 'loans' && $data['emi_auto'] === 'yes') {
+                $months = (int) $data['term'];
+                $monthlyRate = (float) $data['rate'] / 1200;
+                $principal = $data['opening_paisa'];
+                $payment = $monthlyRate === 0.0
+                    ? $principal / $months
+                    : $principal * $monthlyRate / -expm1(-$months * log1p($monthlyRate));
+                $data['emi_paisa'] = (int) round($payment);
             }
             if ($input['kind'] === 'savings' && ($data['calculation_basis'] ?? null) === 'monthly_installments') {
                 $this->check(in_array($data['type'], ['DPS', 'SIP']), 'Monthly installments are available for DPS and SIP.');
