@@ -48,12 +48,16 @@ class TransactionService
             $amount = Money::parse($input['amount']);
             $this->check($amount > 0, 'Amount must be greater than zero.');
             $account = $this->repo->record($uid, $input['account_id']);
+            $this->check(($account->data['archived'] ?? 'no') !== 'yes' || $old?->account_id === $account->id, 'This account is archived.');
             $this->check($account->kind === 'accounts' || ($type === 'expense' && $account->kind === 'cards'), 'Use a money account, or a credit card only for a purchase.');
             $data = ['type' => $type, 'name' => $input['name'], 'category' => $input['category'] ?? null, 'date' => $input['date'], 'amount_paisa' => $amount, 'principal_paisa' => 0, 'interest_paisa' => 0, 'account_id' => $account->id, 'destination_id' => null, 'loan_id' => null, 'card_id' => null, 'saving_id' => null, 'source_id' => null, 'cycle' => null, 'statement_date' => null, 'request_hash' => $requestHash, 'idempotency_key' => $old?->idempotency_key ?? $input['idempotency_key']];
             if ($type === 'transfer') {
                 $to = $this->repo->record($uid, $input['destination_id'] ?? '');
                 $this->check($to->kind === 'accounts' && $to->id !== $account->id, 'Choose a different destination money account.');
+                $this->check(($to->data['archived'] ?? 'no') !== 'yes' || $old?->destination_id === $to->id, 'The destination account is archived.');
                 $data['destination_id'] = $to->id;
+                // For transfers, the transaction's ancillary cost is the transfer fee.
+                $data['interest_paisa'] = Money::parse($input['transfer_fee'] ?? '0');
             }
             if ($type === 'loan_payment') {
                 $loan = $this->repo->record($uid, $input['loan_id'] ?? '');

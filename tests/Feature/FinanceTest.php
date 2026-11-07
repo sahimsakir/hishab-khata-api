@@ -57,6 +57,43 @@ class FinanceTest extends TestCase
         $this->getJson('/api/finance?date=2026-11-07&period=Custom')->assertUnprocessable()->assertJsonValidationErrors(['from', 'to']);
     }
 
+    public function test_transfer_fee_affects_only_source_and_expenses(): void
+    {
+        $source = $this->account();
+        $target = $this->account();
+        $this->tx(['type' => 'transfer', 'account_id' => $source->id, 'destination_id' => $target->id,
+            'amount' => '100', 'transfer_fee' => '5.25']);
+        $snapshot = app(FinanceService::class)->snapshot($this->user->id, '2026-11-06', 'Monthly');
+
+        $this->assertSame(989475, $snapshot['balances'][$source->id]);
+        $this->assertSame(1010000, $snapshot['balances'][$target->id]);
+        $this->assertSame(525, $snapshot['summary']['spending_paisa']);
+        $this->assertSame(-525, $snapshot['summary']['cash_movement_paisa']);
+    }
+
+    public function test_statement_import_retries_and_archived_accounts(): void
+    {
+        $account = $this->account();
+        Passport::actingAs($this->user);
+        $row = ['type' => 'expense', 'amount' => '10', 'date' => '2026-11-06',
+            'account_id' => $account->id, 'idempotency_key' => (string) Str::uuid()];
+        $this->postJson('/api/transactions/import', ['rows' => [$row, array_replace($row, ['amount' => '0', 'idempotency_key' => (string) Str::uuid()])]])
+            ->assertUnprocessable();
+        $this->assertDatabaseCount('transactions', 0);
+        $this->postJson('/api/transactions/import', ['rows' => [$row]])->assertCreated();
+        $this->postJson('/api/transactions/import', ['rows' => [$row]])->assertCreated();
+        $this->assertDatabaseCount('transactions', 1);
+
+        $settings = '/api/accounts/'.$account->id.'/settings';
+        $statement = ['date' => '2026-11-06', 'balance' => '9990.00', 'cleared' => [Transaction::first()->id]];
+        $this->patchJson($settings, ['reconciliation' => $statement])->assertOk()->assertJsonPath('data.reconciliation', $statement);
+        $this->patchJson($settings, ['archived' => 'yes'])->assertOk()->assertJsonPath('data.reconciliation', $statement);
+        $row['idempotency_key'] = (string) Str::uuid();
+        $this->postJson('/api/transactions/import', ['rows' => [$row]])->assertUnprocessable();
+        $this->patchJson($settings, ['archived' => 'no'])->assertOk();
+        $this->postJson('/api/transactions/import', ['rows' => [$row]])->assertCreated();
+    }
+
     public function test_exact_paisa_and_no_rounding(): void
     {
         $this->assertSame(10, Money::parse('0.10'));

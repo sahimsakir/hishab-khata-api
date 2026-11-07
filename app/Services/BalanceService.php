@@ -13,6 +13,9 @@ class BalanceService
             if ($t->account_id === $record->id) {
                 $balance += in_array($t->type, ['income', 'loan_received', 'savings_withdrawal']) ? $t->amount_paisa : -$t->amount_paisa;
             }
+            if ($t->type === 'transfer' && $t->account_id === $record->id) {
+                $balance -= $t->interest_paisa;
+            }
             if ($t->type === 'transfer' && $t->destination_id === $record->id) {
                 $balance += $t->amount_paisa;
             }
@@ -48,13 +51,14 @@ class BalanceService
         $cardIds = ($byKind['cards'] ?? collect())->pluck('id')->all();
         $income = $period->where('type', 'income')->sum('amount_paisa');
         $expenses = $period->where('type', 'expense')->sum('amount_paisa');
+        $fees = $period->where('type', 'transfer')->sum('interest_paisa');
         $interest = $period->where('type', 'loan_payment')->sum('interest_paisa');
         $debt = $period->whereIn('type', ['loan_payment', 'card_payment'])->sum('amount_paisa');
         $contributions = $period->where('type', 'saving')->sum('amount_paisa') - $period->where('type', 'savings_withdrawal')->sum('amount_paisa');
         $cashExpenses = $period->where('type', 'expense')->whereNotIn('account_id', $cardIds)->sum('amount_paisa');
 
         return ['cash_paisa' => $cash, 'savings_paisa' => $savings, 'loans_paisa' => $loans, 'cards_paisa' => $cards, 'net_worth_paisa' => $cash + $savings - $loans - $cards,
-            'income_paisa' => $income, 'spending_paisa' => $expenses + $interest, 'interest_paisa' => $interest, 'debt_payments_paisa' => $debt, 'net_savings_paisa' => $contributions,
-            'cash_movement_paisa' => $income - $cashExpenses - $debt - $contributions + $period->where('type', 'loan_received')->sum('amount_paisa')];
+            'income_paisa' => $income, 'spending_paisa' => $expenses + $interest + $fees, 'transfer_fees_paisa' => $fees, 'interest_paisa' => $interest, 'debt_payments_paisa' => $debt, 'net_savings_paisa' => $contributions,
+            'cash_movement_paisa' => $income - $cashExpenses - $fees - $debt - $contributions + $period->where('type', 'loan_received')->sum('amount_paisa')];
     }
 }

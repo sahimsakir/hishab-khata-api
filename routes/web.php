@@ -21,6 +21,8 @@ Route::prefix('api')->group(function () {
         Route::post('records', [FinanceController::class, 'storeRecord']);
         Route::put('records/{id}', [FinanceController::class, 'updateRecord'])->whereUuid('id');
         Route::delete('records/{id}', [FinanceController::class, 'deleteRecord'])->whereUuid('id');
+        Route::patch('accounts/{id}/settings', [FinanceController::class, 'updateAccountSettings'])->whereUuid('id');
+        Route::post('transactions/import', [FinanceController::class, 'importTransactions']);
         Route::post('transactions', [FinanceController::class, 'storeTransaction']);
         Route::put('transactions/{id}', [FinanceController::class, 'updateTransaction'])->whereUuid('id');
         Route::delete('transactions/{id}', [FinanceController::class, 'deleteTransaction'])->whereUuid('id');

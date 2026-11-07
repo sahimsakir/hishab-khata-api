@@ -10,6 +10,7 @@ use App\Services\RecordService;
 use App\Services\TransactionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class FinanceController extends Controller
 {
@@ -30,6 +31,29 @@ class FinanceController extends Controller
     public function updateRecord(RecordRequest $r, string $id): JsonResponse
     {
         return response()->json($this->records->save($r->user('api')->id, $r->validated(), $id));
+    }
+
+    public function updateAccountSettings(Request $r, string $id): JsonResponse
+    {
+        return response()->json($this->records->updateAccountSettings($r->user('api')->id, $id, $r->only(['archived', 'reconciliation'])));
+    }
+
+    public function importTransactions(Request $r): JsonResponse
+    {
+        $rules = ['rows' => 'required|array|min:1|max:25'];
+        foreach ((new TransactionRequest)->rules() as $field => $rule) {
+            $rules['rows.*.'.$field] = $rule;
+        }
+        $rules['rows.*.type'] = 'required|in:income,expense';
+        $rows = $r->validate($rules)['rows'];
+        $uid = $r->user('api')->id;
+        DB::transaction(function () use ($rows, $uid) {
+            foreach ($rows as $row) {
+                $this->transactions->save($uid, $row);
+            }
+        });
+
+        return response()->json(['count' => count($rows)], 201);
     }
 
     public function deleteRecord(Request $r, string $id): JsonResponse

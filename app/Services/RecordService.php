@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\FinanceRepository;
 use App\Contracts\UserRepository;
+use App\Models\FinanceRecord;
 use App\Support\Money;
 use App\Support\InstallmentPayments;
 use App\Support\InstallmentSchedule;
@@ -34,7 +35,7 @@ class RecordService
             $optionalMoney = ['nullable', ...array_slice($money, 1)];
             $schedule = ['day' => 'required|integer|min:1|max:31', 'start' => 'required|date_format:Y-m', 'end' => 'nullable|date_format:Y-m|after_or_equal:start'];
             $rules = match ($input['kind']) {
-                'accounts' => ['type' => 'required|in:Cash,Bank,Mobile wallet,Business account,Other', 'opening' => $money, 'institution' => 'nullable|string|max:120'],
+                'accounts' => ['type' => 'required|in:Cash,Bank,Mobile wallet,Business account,Other', 'opening' => $money, 'institution' => 'nullable|string|max:120', 'archived' => 'nullable|in:yes,no', 'reconciliation' => 'nullable|array:date,balance,cleared|required_array_keys:date,balance,cleared', 'reconciliation.date' => 'required_with:reconciliation|date_format:Y-m-d', 'reconciliation.balance' => ['required_with:reconciliation', 'string', 'regex:/^-?(0|[1-9]\d{0,9})(\.\d{1,2})?$/'], 'reconciliation.cleared' => 'array|max:10000', 'reconciliation.cleared.*' => 'uuid|distinct'],
                 'incomes' => $schedule + ['type' => 'required|in:Salary,Business profit,Freelance,Rental income,Dividend / interest,Other', 'amount' => $money, 'account_id' => 'required|uuid', 'frequency' => 'nullable|in:monthly,once', 'payment_date' => 'nullable|date_format:Y-m-d', 'payer' => 'nullable|string|max:120'],
                 'bills' => $schedule + ['amount' => $money, 'category' => 'required|string|max:60', 'account_id' => 'required|uuid', 'frequency' => 'nullable|in:monthly,once', 'payment_date' => 'nullable|date_format:Y-m-d'],
                 'loans' => $schedule + ['type' => 'required|string|max:40', 'lender' => 'required|string|max:120', 'opening' => $money, 'emi' => $optionalMoney, 'processing_fee' => $optionalMoney, 'previously_paid_installments' => 'nullable|integer|min:0|max:1200', 'interest_bearing' => 'nullable|in:yes,no', 'rate' => 'required|numeric|min:0|max:100', 'term' => 'required|integer|min:1|max:600'],
@@ -43,6 +44,17 @@ class RecordService
                 'budgets' => ['category' => 'required|string|max:60', 'limit' => $money],
             };
             $data = Validator::make($input['data'], $rules, [], ['annual_rate' => 'annual rate', 'opening_date' => 'opening date', 'first_payment' => 'first payment date', 'term_value' => 'tenure', 'term_unit' => 'tenure unit', 'end' => 'last month', 'start' => 'first month', 'projection_start' => 'projection date', 'compounding' => 'interest method', 'account_id' => 'account'])->validate();
+            if ($input['kind'] === 'accounts' && $record) {
+                $data += array_intersect_key($record->data, array_flip(['archived', 'reconciliation']));
+                if (isset($input['data']['reconciliation'])) {
+                    $statement = $data['reconciliation'];
+                    $validIds = $this->repo->transactions($uid)->filter(fn ($transaction) =>
+                        $transaction->date <= $statement['date'] &&
+                        ($transaction->account_id === $record->id || $transaction->destination_id === $record->id)
+                    )->pluck('id')->all();
+                    $this->check(! array_diff($statement['cleared'] ?? [], $validIds), 'Some cleared transactions no longer belong to this statement.');
+                }
+            }
             if ($input['kind'] === 'savings' && ($data['maturity_mode'] ?? null) === 'duration') {
                 $months = (int) $data['term_value'] * ($data['term_unit'] === 'years' ? 12 : 1);
                 $this->check($months <= 1200, 'Maturity duration cannot exceed 100 years or 1200 months.');
@@ -152,6 +164,26 @@ class RecordService
             }
 
             return $this->repo->saveRecord($uid, ['kind' => $input['kind'], 'name' => $input['name'], 'data' => $data], $record);
+        });
+    }
+
+    public function updateAccountSettings(int $uid, string $id, array $settings): FinanceRecord
+    {
+        return DB::transaction(function () use ($uid, $id, $settings) {
+            $this->users->lock($uid);
+            $account = $this->repo->record($uid, $id);
+            $this->check($account->kind === 'accounts', 'Select a money account.');
+            $opening = $account->data['opening_paisa'];
+
+            return $this->save($uid, [
+                'kind' => 'accounts',
+                'name' => $account->name,
+                'data' => [
+                    'type' => $account->data['type'],
+                    'institution' => $account->data['institution'] ?? null,
+                    'opening' => sprintf('%d.%02d', intdiv($opening, 100), $opening % 100),
+                ] + $settings,
+            ], $id);
         });
     }
 
